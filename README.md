@@ -64,5 +64,5 @@ python -m unittest discover -s tests -v
 
 ## Licencia
 
-MIT. Consulta [LICENSE](LICENSE).
+MIT, emitida con el gestor de licencias de Israel Ubeda. Código interno **IU-OSS-0006**. Las condiciones legales están en [LICENSE](LICENSE) y el registro se identifica en [LICENSE_ID.txt](LICENSE_ID.txt).
 
