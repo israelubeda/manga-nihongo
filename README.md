@@ -2,6 +2,25 @@
 
 Programa de consola en español para aprender a leer japonés en Termux: hiragana, kanji, vocabulario habitual del manga y diálogos originales. Funciona sin conexión después de instalarlo. La interfaz usa [`color_latam`](https://pypi.org/project/color-latam/) para los colores ANSI.
 
+La interfaz usa tarjetas visuales, una paleta de colores suaves y una barra de avance. Se adapta al ancho de la terminal; también funciona sin color con `--sin-color` o la variable `NO_COLOR`.
+
+```text
+  漫画  M A N G A   N I H O N G O
+  ──────────────────────────────
+  LEE MANGA EN JAPONÉS
+
+╭────────────────────────────────╮
+│ HOY                            │
+├────────────────────────────────┤
+│ 0 repasos pendientes           │
+╰────────────────────────────────╯
+
+  01  Hiragana
+      Reconoce y escribe sus sonidos
+  02  Kanji
+      Significados y lecturas frecuentes
+```
+
 ## Instalación en Android (Termux)
 
 Usa Termux actualizado y una fuente que muestre caracteres japoneses.
@@ -40,6 +59,7 @@ manga-nihongo --practicar hiragana  # ejercicios de hiragana
 manga-nihongo --practicar kanji --cantidad 20
 manga-nihongo --practicar vocabulario --nivel 2
 manga-nihongo --repasar             # tarjetas vencidas
+manga-nihongo --sin-color           # sin códigos ANSI
 ```
 
 Durante una práctica: `?` muestra una pista, `/` revela la solución y `q` sale. Las respuestas omitidas se cuentan como error. `Ctrl+C` sale con seguridad.
