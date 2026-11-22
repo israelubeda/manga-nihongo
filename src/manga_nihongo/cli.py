@@ -1,6 +1,9 @@
 """Interfaz sencilla para Termux y otras terminales UTF-8."""
 import argparse
+import os
+import shutil
 import sys
+import unicodedata
 from typing import List
 
 from .data import ALL_CARDS, SCENES, Card
@@ -12,10 +15,49 @@ except ImportError:
     color_latam = None
 
 
-def paint(text: str, color: str, bold: bool = False) -> str:
-    if color_latam is None or not sys.stdout.isatty():
+PALETTE = {"acento": "#B799FF", "cian": "#70D9D2", "oro": "#FFD38A",
+           "verde": "#91E6B1", "rojo": "#FF8D9A", "suave": "#AAB2C7",
+           "blanco": "#F4F4FA"}
+COLOR_ENABLED = True
+
+
+def width() -> int:
+    return max(24, min(76, shutil.get_terminal_size((56, 20)).columns - 2))
+
+
+def visual_width(text: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+
+def fit(text: str, limit: int) -> str:
+    if visual_width(text) <= limit:
         return text
-    return color_latam.colorear(text, color, negrita=bold)
+    result = ""
+    for char in text:
+        if visual_width(result + char + "…") > limit:
+            break
+        result += char
+    return result + "…"
+
+
+def wrapped(text: str, limit: int) -> List[str]:
+    lines: List[str] = []
+    current = ""
+    for word in text.split():
+        candidate = (current + " " + word).strip()
+        if current and visual_width(candidate) > limit:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    lines.append(current)
+    return [fit(line, limit) for line in lines]
+
+
+def paint(text: str, color: str = "blanco", bold: bool = False) -> str:
+    if color_latam is None or not COLOR_ENABLED or not sys.stdout.isatty() or os.getenv("NO_COLOR"):
+        return text
+    return color_latam.color_hex(text, PALETTE[color], negrita=bold)
 
 
 def say(text: str = "", color: str = "blanco", bold: bool = False) -> None:
@@ -23,38 +65,73 @@ def say(text: str = "", color: str = "blanco", bold: bool = False) -> None:
 
 
 def ask(text: str) -> str:
-    return input(paint(text, "cian")).strip()
+    return input(paint("  " + text + " › ", "cian", True)).strip()
 
 
 def section(title: str) -> None:
-    say("\n" + "━" * 38, "magenta")
-    say(title, "amarillo", True)
-    say("━" * 38, "magenta")
+    if sys.stdout.isatty() and os.getenv("TERM") != "dumb":
+        print("\033[2J\033[H", end="")
+    else:
+        print()
+    say("  " + fit("漫画  M A N G A   N I H O N G O", width() - 2), "acento", True)
+    say("  " + "─" * min(37, width() - 2), "suave")
+    say("  " + fit(title.upper(), width() - 2), "oro", True)
+    say()
 
 
-def lesson(kind: str, level: int, page: int = 0) -> None:
+def panel(title: str, lines: List[str], color: str = "acento") -> None:
+    inside = width() - 4
+    say("╭" + "─" * (inside + 2) + "╮", color)
+    label = fit(title, inside)
+    print(paint("│ ", color) + paint(label, "oro", True)
+          + " " * (inside - visual_width(label)) + paint(" │", color))
+    say("├" + "─" * (inside + 2) + "┤", color)
+    for line in lines:
+        for part in wrapped(line, inside):
+            print(paint("│ ", color) + part
+                  + " " * (inside - visual_width(part)) + paint(" │", color))
+    say("╰" + "─" * (inside + 2) + "╯", color)
+
+
+def progress_bar(done: int, total: int) -> str:
+    filled = round(16 * done / max(1, total))
+    return "━" * filled + "·" * (16 - filled)
+
+
+def menu_item(number: str, title: str, detail: str) -> None:
+    print(paint("  " + number + "  ", "cian", True) + paint(title, "blanco", True))
+    for part in wrapped(detail, width() - 6):
+        say("      " + part, "suave")
+
+
+def lesson(kind: str, level: int, progress: Progress, page: int = 0) -> None:
     cards = eligible(kind, level)
-    per_page = 12
+    per_page = 8
     if not cards:
-        say("No hay tarjetas en esta selección.", "amarillo")
+        say("No hay tarjetas en esta selección.", "oro")
         return
     pages = (len(cards) + per_page - 1) // per_page
     page = max(0, min(page, pages - 1))
     while True:
-        section("Lección: {} · página {}/{}".format(kind, page + 1, pages))
-        for card in cards[page * per_page:(page + 1) * per_page]:
+        section("{}  ·  página {}/{}".format(kind, page + 1, pages))
+        subset = cards[page * per_page:(page + 1) * per_page]
+        for card in subset:
             meaning = " · " + card.spanish if card.spanish else ""
-            say("{:<12}  {:<18}{}".format(card.japanese, card.romaji, meaning))
+            for part in wrapped("{}  /  {}{}".format(card.japanese, card.romaji, meaning), width() - 2):
+                say("  " + part, "blanco", True)
             if card.note:
-                say("  ↳ " + card.note, "azul")
-        say("[s]iguiente  [a]nterior  [p]racticar  [q] salir", "cian")
-        choice = ask("> ").lower()
+                for part in wrapped("↳ " + card.note, width() - 6):
+                    say("      " + part, "suave")
+        say()
+        say("  [s] siguiente   [a] anterior", "cian")
+        say("  [p] practicar esta página   [q] volver", "cian")
+        choice = ask("Opción").lower()
         if choice == "s":
             page = min(page + 1, pages - 1)
         elif choice == "a":
             page = max(page - 1, 0)
         elif choice == "p":
-            practice(cards[page * per_page:(page + 1) * per_page], 10, Progress())
+            practice(subset, 10, progress)
         elif choice in ("q", "", "0"):
             return
 
@@ -63,87 +140,120 @@ def practice(cards: List[Card], count: int, progress: Progress,
              review_only: bool = False) -> None:
     pairs = make_session(cards, count, progress, review_only)
     if not pairs:
-        say("No hay repasos pendientes. Prueba una práctica nueva.", "verde")
+        section("Repaso al día")
+        panel("¡BIEN HECHO!", ["No hay tarjetas pendientes por ahora."], "verde")
+        ask("Enter para volver")
         return
-    section("Repaso" if review_only else "Práctica")
-    say("Escribe ? para una pista, / para saltar o q para salir.", "azul")
     hits = 0
     completed = 0
+    labels = {"romaji": "LECTURA EN ROMAJI", "es_jp": "ESPAÑOL → JAPONÉS",
+              "jp_es": "JAPONÉS → ESPAÑOL"}
     for card, direction in pairs:
-        say("\n{}/{} · {} · nivel {}".format(completed + 1, len(pairs), card.kind, card.level), "magenta")
-        say(prompt(card, direction), "amarillo", True)
-        answer = ask("> ")
+        section("{}  ·  {}/{}".format("Repaso" if review_only else "Práctica",
+                                     completed + 1, len(pairs)))
+        say("  " + progress_bar(completed, len(pairs)), "acento")
+        say("  {}  ·  nivel {}".format(card.kind, card.level), "suave")
+        say("  " + labels[direction], "cian", True)
+        say()
+        panel("TU RETO", [prompt(card, direction)])
+        say("  ? pista     / revelar     q salir", "suave")
+        answer = ask("Tu respuesta")
         if answer.lower() == "q":
             break
         if answer == "?":
-            say("Pista: " + (card.note or "Empieza con " + solution(card, direction)[:1]), "azul")
-            answer = ask("> ")
+            say("  Pista: " + (card.note or "Empieza con " + solution(card, direction)[:1]), "oro")
+            answer = ask("Tu respuesta")
         if answer.lower() == "q":
             break
-        if answer == "/":
-            say("Solución: " + solution(card, direction), "amarillo")
-            progress.record(card, direction, False)
+        ok = answer != "/" and correct(card, direction, answer)
+        hits += int(ok)
+        progress.record(card, direction, ok)
+        say()
+        if ok:
+            panel("¡CORRECTO!", [solution(card, direction)], "verde")
         else:
-            ok = correct(card, direction, answer)
-            hits += int(ok)
-            progress.record(card, direction, ok)
-            say("¡Correcto!" if ok else "Respuesta: " + solution(card, direction),
-                "verde" if ok else "rojo", True)
+            panel("SIGUE PRACTICANDO", ["Respuesta: " + solution(card, direction)], "rojo")
         if card.note:
-            say(card.note, "azul")
+            say("  " + card.note, "suave")
         completed += 1
-    say("\nResultado: {}/{} aciertos".format(hits, completed), "cian", True)
+        if completed < len(pairs):
+            ask("Enter para continuar")
+    section("Sesión terminada")
+    say("  " + progress_bar(completed, len(pairs)) + "  {} tarjetas".format(completed), "acento")
+    say()
+    panel("RESULTADO", ["{} de {} aciertos".format(hits, completed),
+                        "Tu avance quedó guardado en el dispositivo."], "verde")
+    ask("Enter para volver")
 
 
 def reading() -> None:
-    section("Lectura de escenas originales")
+    section("Escenas · lee antes de revelar")
     for i, scene in enumerate(SCENES, 1):
-        say("{}. {}".format(i, scene.title))
-    choice = ask("Escena (0 para volver): ")
+        menu_item("0" + str(i), scene.title, "{} viñetas".format(len(scene.lines)))
+    say()
+    choice = ask("Escena · 0 para volver")
     if not choice.isdigit() or not 1 <= int(choice) <= len(SCENES):
         return
     scene = SCENES[int(choice) - 1]
-    section(scene.title)
-    for jp, es, romaji, note in scene.lines:
-        say("\n" + jp, "amarillo", True)
-        ask("Enter para revelar... ")
-        say(romaji + "  ·  " + es, "verde")
-        say(note, "azul")
+    for i, (jp, es, romaji, note) in enumerate(scene.lines, 1):
+        section("{}  ·  viñeta {}/{}".format(scene.title, i, len(scene.lines)))
+        panel("LEE EN JAPONÉS", [jp])
+        ask("Enter para revelar")
+        panel("SIGNIFICADO", [romaji, es], "verde")
+        say("  " + note, "suave")
+        ask("Enter para continuar")
 
 
 def search() -> None:
-    term = ask("Busca japonés, español o romaji: ").casefold()
+    section("Diccionario")
+    say("  Busca japonés, español o romaji.", "suave")
+    term = ask("Buscar").casefold()
     if not term:
         return
     found = [c for c in ALL_CARDS if term in (c.japanese + c.spanish + c.romaji).casefold()]
-    section("Diccionario · {} resultados".format(len(found)))
-    for card in found[:30]:
-        say("{} · {} · {} [{}]".format(card.japanese, card.romaji, card.spanish or "hiragana", card.kind))
-    if len(found) > 30:
-        say("Se muestran los primeros 30. Afina la búsqueda.", "azul")
+    section("{} resultados para «{}»".format(len(found), term))
+    for card in found[:20]:
+        say("  {}  /  {}".format(card.japanese, card.romaji), "blanco", True)
+        say("    {}  ·  {}".format(card.spanish or "hiragana", card.kind), "suave")
+    if len(found) > 20:
+        say("  Se muestran 20. Afina la búsqueda.", "oro")
+    ask("Enter para volver")
 
 
 def stats(progress: Progress) -> None:
     data = progress.summary()
     section("Tu progreso")
-    for label, key in (("Tarjetas/direcciones practicadas", "practicadas"),
-                       ("Intentos", "intentos"), ("Aciertos", "aciertos"),
-                       ("Repasos pendientes", "pendientes")):
-        say("{}: {}".format(label, data[key]))
-    if data["intentos"]:
-        say("Precisión: {:.0f}%".format(100 * data["aciertos"] / data["intentos"]), "verde")
-    say("Guardado en " + str(progress.path), "azul")
+    precision = round(100 * data["aciertos"] / data["intentos"]) if data["intentos"] else 0
+    panel("RESUMEN", [
+        "Tarjetas y direcciones: {}".format(data["practicadas"]),
+        "Intentos: {}  ·  Aciertos: {}".format(data["intentos"], data["aciertos"]),
+        "Precisión: {}%".format(precision),
+        "Repasos pendientes: {}".format(data["pendientes"]),
+    ])
+    say("  Progreso guardado en " + str(progress.path), "suave")
+    ask("Enter para volver")
 
 
 def menu(progress: Progress) -> None:
     while True:
-        section("漫画 NIHONGO · del hiragana al manga")
-        say("1. Hiragana  2. Kanji  3. Vocabulario  4. Escenas")
-        say("5. Práctica mixta  6. Repaso pendiente  7. Diccionario")
-        say("8. Progreso  0. Salir")
-        choice = ask("> ")
+        data = progress.summary()
+        section("Lee manga en japonés")
+        panel("HOY", ["{} repasos pendientes  ·  {} aciertos acumulados".format(
+            data["pendientes"], data["aciertos"])])
+        say()
+        menu_item("01", "Hiragana", "Reconoce y escribe sus sonidos")
+        menu_item("02", "Kanji", "Significados y lecturas frecuentes")
+        menu_item("03", "Vocabulario", "Palabras útiles para manga")
+        menu_item("04", "Escenas", "Diálogos originales guiados")
+        say("  " + "─" * min(35, width() - 2), "suave")
+        menu_item("05", "Práctica mixta", "Japonés, español y romaji")
+        menu_item("06", "Repaso pendiente", "Refuerza lo aprendido")
+        menu_item("07", "Diccionario", "Busca una palabra")
+        menu_item("08", "Mi progreso", "Estadísticas de estudio")
+        say("  0   Salir", "suave")
+        choice = ask("Elige una opción").lstrip("0") or "0"
         if choice in ("1", "2", "3"):
-            lesson({"1": "hiragana", "2": "kanji", "3": "vocabulario"}[choice], 3)
+            lesson({"1": "hiragana", "2": "kanji", "3": "vocabulario"}[choice], 3, progress)
         elif choice == "4":
             reading()
         elif choice == "5":
@@ -164,7 +274,10 @@ def main(argv=None) -> None:
     parser.add_argument("--repasar", action="store_true")
     parser.add_argument("--nivel", type=int, choices=[1, 2, 3], default=3)
     parser.add_argument("--cantidad", type=int, default=15)
+    parser.add_argument("--sin-color", action="store_true", help="Desactiva colores ANSI")
     args = parser.parse_args(argv)
+    global COLOR_ENABLED
+    COLOR_ENABLED = not args.sin_color
     try:
         progress = Progress()
         if args.practicar or args.repasar:
@@ -173,7 +286,7 @@ def main(argv=None) -> None:
         else:
             menu(progress)
     except (KeyboardInterrupt, EOFError):
-        say("\nHasta pronto. またね！", "cian")
+        say("\n  Hasta pronto. またね！", "cian")
 
 
 if __name__ == "__main__":
