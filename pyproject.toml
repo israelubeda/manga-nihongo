@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manga-nihongo"
+version = "1.0.0"
+description = "Aprende hiragana, kanji y japonés para leer manga desde Termux"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [{name = "Israel Ubeda"}]
+dependencies = ["color-latam>=0.1.1,<1"]
+
+[project.scripts]
+manga-nihongo = "manga_nihongo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
