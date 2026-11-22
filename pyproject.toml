@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manga-nihongo"
-version = "1.0.0"
+version = "1.1.0"
 description = "Aprende hiragana, kanji y japonés para leer manga desde Termux"
 readme = "README.md"
 requires-python = ">=3.8"
